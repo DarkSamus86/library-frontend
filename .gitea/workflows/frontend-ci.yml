@@ -1,0 +1,28 @@
+name: Frontend deploy to Kubernetes
+on:
+  push:
+    branches: [dev]
+jobs:
+  build-and-deploy:
+    runs-on: host
+    steps:
+      - name: Checkout code
+        run: |
+          git config --global http.sslVerify false
+          git clone https://ro8otov:${{ secrets.runner_token }}@gitea.local/darksamus/library-frontend.git .
+          git checkout ${{ github.sha }}
+      - name: Build and push
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          TAG=${SHA:0:7}
+          docker build --build-arg VITE_API_URL="" -t registry.robotov.site/dev-frontend:$TAG .
+          docker push registry.robotov.site/dev-frontend:$TAG
+      - name: Deploy
+        env:
+          SHA: ${{ github.sha }}
+        run: |
+          TAG=${SHA:0:7}
+          sed -i "s|image:.*dev-frontend:.*|image: registry.robotov.site/dev-frontend:$TAG|" k8s/deployment.yaml
+          kubectl apply -f k8s/deployment.yaml -f k8s/service.yaml -n dev
+          kubectl rollout status deployment/dev-frontend -n dev --timeout=180s
