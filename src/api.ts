@@ -11,7 +11,7 @@ import type {
   User,
 } from './types'
 
-const API_URL = import.meta.env.VITE_API_URL || '/api-backend'
+const API_URL = import.meta.env.VITE_API_URL ?? '/api-backend'
 const ACCESS_KEY = 'library.accessToken'
 const REFRESH_KEY = 'library.refreshToken'
 
