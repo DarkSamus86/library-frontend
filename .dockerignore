@@ -1,0 +1,10 @@
+.git
+.idea
+.agents
+.codex
+dist
+node_modules
+npm-debug.log*
+Dockerfile*
+README.md
+frontend-requirements.md
