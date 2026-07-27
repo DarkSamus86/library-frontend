@@ -1,75 +1,76 @@
-# React + TypeScript + Vite
+# Chapter — frontend библиотеки
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React SPA для backend Library: авторизация по JWT, каталог книг, профиль
+читателя и административная панель.
 
-Currently, two official plugins are available:
+## Запуск
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+Требуется запущенный backend на `http://localhost:8080`.
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```bash
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+Vite откроет frontend на `http://localhost:5173` и проксирует запросы
+`/api-backend` в backend. Другой адрес API можно указать в `.env.local`:
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
+```env
+VITE_API_URL=/api-backend
 ```
+
+## Проверка
+
+```bash
+npm run lint
+npm run build
+```
+
+Production-сборка создаётся в `dist/`. В production frontend и backend
+нужно разместить под одним origin и направить `/api-backend` на backend.
+
+## Docker
+
+Собрать production-образ:
+
+```bash
+docker build -t library-frontend .
+```
+
+Контейнер ожидает, что backend доступен по адресу `http://backend:8080`.
+При другом адресе передайте `BACKEND_URL`:
+
+```bash
+docker run --rm \
+  -p 80:80 \
+  -e BACKEND_URL=http://library-backend:8080 \
+  --name library-frontend \
+  library-frontend
+```
+
+Frontend будет доступен на `http://localhost`. Для связи контейнеров по
+имени подключите их к одной Docker network. Endpoint `/health` можно
+использовать для health check оркестратора.
+
+Если frontend должен обращаться к API по другому browser URL, задайте его
+при сборке:
+
+```bash
+docker build \
+  --build-arg VITE_API_URL=/api-backend \
+  -t library-frontend .
+```
+
+## Реализовано
+
+- регистрация, вход, восстановление сессии, refresh и logout;
+- guards для авторизованного пользователя и роли `ROLE_ADMIN`;
+- каталог с поиском, сортировкой, пагинацией и URL-параметрами;
+- детальная страница книги с fallback обложки;
+- просмотр и редактирование профиля, смена пароля;
+- dashboard, управление пользователями и ролями;
+- создание, редактирование, soft/hard delete книг;
+- асинхронный импорт из Open Library;
+- loading, error и empty states, адаптивная вёрстка от 360 px.
+
+Валюта отображения временно установлена в KZT, поскольку backend не
+возвращает код валюты.
