@@ -8,7 +8,7 @@ jobs:
     steps:
       - name: Checkout code
         run: |
-          git clone https://ro8otov:${{ secrets.runner_token }}@gitea.local/darksamus/library-frontend.git .
+          git clone https://ro8otov:${{ secrets.runner_token }}@gitea.robotov.site/darksamus/library-frontend.git .
           git checkout ${{ github.sha }}
       - name: Build and push
         env:
