@@ -35,6 +35,10 @@ export const authStorage = {
 export function accessPayload(): JwtPayload | null {
   const token = authStorage.getAccess()
   if (!token) return null
+  return decodeAccessToken(token)
+}
+
+export function decodeAccessToken(token: string): JwtPayload | null {
   try {
     return jwtDecode<JwtPayload>(token)
   } catch {
@@ -161,7 +165,8 @@ export const authApi = {
 }
 
 export const usersApi = {
-  me: () => http.get<User>('/user/me').then((r) => r.data),
+  me: (signal?: AbortSignal) =>
+    http.get<User>('/user/me', { signal }).then((r) => r.data),
   updateMe: (body: UpdateProfileRequest) =>
     http.patch<User>('/user/me', body).then((r) => r.data),
   changePassword: (body: ChangePasswordRequest) =>

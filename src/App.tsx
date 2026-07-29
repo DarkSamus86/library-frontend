@@ -381,12 +381,14 @@ function EditProfilePage() {
     mutationFn: usersApi.updateMe,
     onSuccess: async (updatedUser, values) => {
       if (values.username !== undefined && values.username !== user?.username) {
-        clearSession()
+        await clearSession()
         navigate('/login', { replace: true })
       } else {
         setProfile(updatedUser)
-        queryClient.setQueryData(['current-user'], updatedUser)
-        await queryClient.invalidateQueries({ queryKey: ['current-user'] })
+        queryClient.setQueryData(['current-user', updatedUser.id], updatedUser)
+        await queryClient.invalidateQueries({
+          queryKey: ['current-user', updatedUser.id],
+        })
         navigate('/profile')
       }
     },
@@ -428,8 +430,8 @@ function ChangePasswordPage() {
   const [error, setError] = useState('')
   const mutation = useMutation({
     mutationFn: usersApi.changePassword,
-    onSuccess: () => {
-      clearSession()
+    onSuccess: async () => {
+      await clearSession()
       navigate('/login', { replace: true })
     },
     onError: (err) => {

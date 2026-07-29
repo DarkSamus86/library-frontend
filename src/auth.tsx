@@ -13,6 +13,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import {
   authApi,
   authStorage,
+  decodeAccessToken,
   setAuthFailureHandler,
   usersApi,
 } from './api'
@@ -23,48 +24,72 @@ interface AuthContextValue {
   loading: boolean
   establish: (tokens: AuthResponse) => Promise<void>
   logout: () => Promise<void>
-  clearSession: () => void
+  clearSession: () => Promise<void>
   refreshProfile: () => Promise<void>
   setProfile: (user: User) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+const CURRENT_USER_KEY = ['current-user'] as const
+
+function currentUserQuery(userId: number) {
+  return {
+    queryKey: [...CURRENT_USER_KEY, userId] as const,
+    queryFn: ({ signal }: { signal: AbortSignal }) => usersApi.me(signal),
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: 'always' as const,
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const queryClient = useQueryClient()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const clearSession = useCallback(() => {
-    authStorage.clear()
-    setUser(null)
-    queryClient.removeQueries({ queryKey: ['current-user'] })
+  const clearCurrentUserQuery = useCallback(async () => {
+    await queryClient.cancelQueries({ queryKey: CURRENT_USER_KEY })
+    queryClient.removeQueries({ queryKey: CURRENT_USER_KEY })
   }, [queryClient])
 
+  const clearSession = useCallback(async () => {
+    setUser(null)
+    await clearCurrentUserQuery()
+    authStorage.clear()
+  }, [clearCurrentUserQuery])
+
   const loadProfile = useCallback(async () => {
-    if (!authStorage.getAccess()) {
-      clearSession()
+    const token = authStorage.getAccess()
+    const payload = token ? decodeAccessToken(token) : null
+    if (!payload) {
+      await clearSession()
       return
     }
-    const profile = await queryClient.fetchQuery({
-      queryKey: ['current-user'],
-      queryFn: usersApi.me,
-      staleTime: 0,
-    })
+    const profile = await queryClient.fetchQuery(currentUserQuery(payload.userId))
     setUser(profile)
   }, [clearSession, queryClient])
 
   const establish = useCallback(
     async (tokens: AuthResponse) => {
+      setLoading(true)
+      setUser(null)
+      await clearCurrentUserQuery()
       authStorage.save(tokens)
       try {
-        await loadProfile()
+        const payload = decodeAccessToken(tokens.accessToken)
+        if (!payload) throw new Error('Сервер вернул некорректный access token')
+        const profile = await queryClient.fetchQuery(
+          currentUserQuery(payload.userId),
+        )
+        setUser(profile)
       } catch (error) {
-        clearSession()
+        await clearSession()
         throw error
+      } finally {
+        setLoading(false)
       }
     },
-    [clearSession, loadProfile],
+    [clearCurrentUserQuery, clearSession, queryClient],
   )
 
   const logout = useCallback(async () => {
@@ -73,7 +98,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       // Локальная сессия очищается даже при сетевой ошибке.
     } finally {
-      clearSession()
+      await clearSession()
     }
   }, [clearSession])
 
@@ -81,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setAuthFailureHandler(clearSession)
     const timer = window.setTimeout(() => {
       loadProfile()
-        .catch(clearSession)
+        .catch(() => clearSession())
         .finally(() => setLoading(false))
     }, 0)
     return () => window.clearTimeout(timer)
