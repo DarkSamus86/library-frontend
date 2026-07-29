@@ -38,7 +38,7 @@ import {
 import { z } from 'zod'
 import { adminApi, authApi, booksApi, normalizeApiError, usersApi } from './api'
 import { GuestOnly, RequireAdmin, RequireAuth, useAuth } from './auth'
-import type { AdminUser, Book, BookPayload } from './types'
+import type { AdminUser, Book, BookPayload, UpdateProfileRequest } from './types'
 import './App.css'
 
 const money = new Intl.NumberFormat('ru-RU', {
@@ -52,10 +52,10 @@ function App() {
     <Routes>
       <Route path="/login" element={<GuestOnly><AuthPage mode="login" /></GuestOnly>} />
       <Route path="/register" element={<GuestOnly><AuthPage mode="register" /></GuestOnly>} />
-      <Route element={<RequireAuth />}>
-        <Route element={<AppLayout />}>
-          <Route path="/books" element={<BooksPage />} />
-          <Route path="/books/:id" element={<BookDetailsPage />} />
+      <Route element={<AppLayout />}>
+        <Route path="/books" element={<BooksPage />} />
+        <Route path="/books/:id" element={<BookDetailsPage />} />
+        <Route element={<RequireAuth />}>
           <Route path="/profile" element={<ProfilePage />} />
           <Route path="/profile/edit" element={<EditProfilePage />} />
           <Route path="/change-password" element={<ChangePasswordPage />} />
@@ -151,7 +151,7 @@ function AuthPage({ mode }: { mode: 'login' | 'register' }) {
 }
 
 function AppLayout() {
-  const { user, logout } = useAuth()
+  const { user, loading, logout } = useAuth()
   const [menuOpen, setMenuOpen] = useState(false)
   const location = useLocation()
   const initials = `${user?.firstName?.[0] || user?.username[0] || ''}${user?.lastName?.[0] || ''}`.toUpperCase()
@@ -162,14 +162,20 @@ function AppLayout() {
         <button className="icon-button menu-button" onClick={() => setMenuOpen(!menuOpen)} aria-label="Открыть меню"><MenuRounded /></button>
         <nav className={`main-nav ${menuOpen ? 'open' : ''}`} aria-label="Основная навигация" onClick={() => setMenuOpen(false)}>
           <NavLink to="/books"><BookRounded />Каталог</NavLink>
-          <NavLink to="/profile"><PersonRounded />Профиль</NavLink>
+          {user && <NavLink to="/profile"><PersonRounded />Профиль</NavLink>}
           {user?.roles.includes('ROLE_ADMIN') && <NavLink to="/admin"><DashboardRounded />Управление</NavLink>}
         </nav>
-        <div className="user-menu">
-          <Link to="/profile" className="avatar">{initials}</Link>
-          <div><strong>{user?.firstName || user?.username}</strong><small>{user?.roles.includes('ROLE_ADMIN') ? 'Администратор' : 'Читатель'}</small></div>
-          <button className="icon-button" onClick={() => void logout()} aria-label="Выйти"><LogoutRounded /></button>
-        </div>
+        {user ? (
+          <div className="user-menu">
+            <Link to="/profile" className="avatar">{initials}</Link>
+            <div><strong>{user.firstName || user.username}</strong><small>{user.roles.includes('ROLE_ADMIN') ? 'Администратор' : 'Читатель'}</small></div>
+            <button className="icon-button" onClick={() => void logout()} aria-label="Выйти"><LogoutRounded /></button>
+          </div>
+        ) : (
+          <div className="user-menu">
+            {!loading && <Link className="button secondary" to="/login">Войти</Link>}
+          </div>
+        )}
       </header>
       {location.pathname.startsWith('/admin') && <AdminNav />}
       <main className="page"><Outlet /></main>
@@ -367,17 +373,20 @@ function ProfilePage() {
 }
 
 function EditProfilePage() {
-  const { user, refreshProfile, logout } = useAuth()
+  const { user, clearSession, setProfile } = useAuth()
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const [error, setError] = useState('')
   const mutation = useMutation({
-    mutationFn: (body: { email: string; username: string; firstName: string; lastName: string; currentPassword: string }) => usersApi.update(user!.id, body),
-    onSuccess: async (_data, values) => {
-      if (values.username !== user?.username) {
-        await logout()
+    mutationFn: usersApi.updateMe,
+    onSuccess: async (updatedUser, values) => {
+      if (values.username !== undefined && values.username !== user?.username) {
+        clearSession()
         navigate('/login', { replace: true })
       } else {
-        await refreshProfile()
+        setProfile(updatedUser)
+        queryClient.setQueryData(['current-user'], updatedUser)
+        await queryClient.invalidateQueries({ queryKey: ['current-user'] })
         navigate('/profile')
       }
     },
@@ -387,13 +396,17 @@ function EditProfilePage() {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
-    mutation.mutate({
+    const values: Required<UpdateProfileRequest> = {
       email: String(form.get('email')),
       username: String(form.get('username')),
       firstName: String(form.get('firstName')),
       lastName: String(form.get('lastName')),
-      currentPassword: String(form.get('currentPassword')),
-    })
+    }
+    const changes: UpdateProfileRequest = {}
+    for (const key of Object.keys(values) as (keyof UpdateProfileRequest)[]) {
+      if (values[key] !== (user[key] ?? '')) changes[key] = values[key]
+    }
+    mutation.mutate(changes)
   }
   return (
     <>
@@ -403,8 +416,6 @@ function EditProfilePage() {
         <div className="field-row"><Field label="Имя"><input name="firstName" defaultValue={user.firstName || ''} /></Field><Field label="Фамилия"><input name="lastName" defaultValue={user.lastName || ''} /></Field></div>
         <Field label="Email"><input name="email" type="email" required defaultValue={user.email} /></Field>
         <Field label="Имя пользователя"><input name="username" minLength={3} maxLength={50} required defaultValue={user.username} /></Field>
-        <div className="form-divider" />
-        <Field label="Текущий пароль" hint="Нужен для подтверждения любых изменений"><input name="currentPassword" type="password" required /></Field>
         <div className="form-actions"><Link className="button secondary" to="/profile">Отмена</Link><button className="button primary" disabled={mutation.isPending}>{mutation.isPending ? 'Сохраняем…' : 'Сохранить изменения'}</button></div>
       </form>
     </>
@@ -412,13 +423,24 @@ function EditProfilePage() {
 }
 
 function ChangePasswordPage() {
-  const { logout } = useAuth()
+  const { clearSession } = useAuth()
   const navigate = useNavigate()
   const [error, setError] = useState('')
   const mutation = useMutation({
-    mutationFn: authApi.changePassword,
-    onSuccess: async () => { await logout(); navigate('/login', { replace: true }) },
-    onError: (err) => setError(normalizeApiError(err)),
+    mutationFn: usersApi.changePassword,
+    onSuccess: () => {
+      clearSession()
+      navigate('/login', { replace: true })
+    },
+    onError: (err) => {
+      const message = normalizeApiError(err)
+      setError(
+        message === 'Current password is incorrect' ||
+          message === 'Неверные данные или сессия завершена'
+          ? 'Неверный текущий пароль'
+          : message,
+      )
+    },
   })
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

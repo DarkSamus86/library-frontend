@@ -8,9 +8,9 @@ import {
   useState,
   type ReactNode,
 } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import {
-  accessPayload,
   authApi,
   authStorage,
   setAuthFailureHandler,
@@ -23,29 +23,36 @@ interface AuthContextValue {
   loading: boolean
   establish: (tokens: AuthResponse) => Promise<void>
   logout: () => Promise<void>
+  clearSession: () => void
   refreshProfile: () => Promise<void>
+  setProfile: (user: User) => void
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const queryClient = useQueryClient()
   const [user, setUser] = useState<User | null>(null)
   const [loading, setLoading] = useState(true)
 
   const clearSession = useCallback(() => {
     authStorage.clear()
     setUser(null)
-  }, [])
+    queryClient.removeQueries({ queryKey: ['current-user'] })
+  }, [queryClient])
 
   const loadProfile = useCallback(async () => {
-    const payload = accessPayload()
-    if (!payload) {
+    if (!authStorage.getAccess()) {
       clearSession()
       return
     }
-    const profile = await usersApi.get(payload.userId)
+    const profile = await queryClient.fetchQuery({
+      queryKey: ['current-user'],
+      queryFn: usersApi.me,
+      staleTime: 0,
+    })
     setUser(profile)
-  }, [clearSession])
+  }, [clearSession, queryClient])
 
   const establish = useCallback(
     async (tokens: AuthResponse) => {
@@ -86,9 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       loading,
       establish,
       logout,
+      clearSession,
       refreshProfile: loadProfile,
+      setProfile: setUser,
     }),
-    [establish, loadProfile, loading, logout, user],
+    [clearSession, establish, loadProfile, loading, logout, user],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

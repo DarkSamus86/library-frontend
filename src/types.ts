@@ -5,6 +5,43 @@ export interface AuthResponse {
   expiresIn: number
 }
 
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface RegistrationRequest {
+  email: string
+  username: string
+  password: string
+  firstName?: string
+  lastName?: string
+}
+
+export interface UpdateProfileRequest {
+  email?: string
+  username?: string
+  firstName?: string
+  lastName?: string
+}
+
+export interface ChangePasswordRequest {
+  currentPassword: string
+  newPassword: string
+}
+
+export interface ApiError {
+  status: number
+  message: string
+  timestamp: string
+}
+
+export interface UserApiError extends ApiError {
+  path: string
+}
+
+export type ValidationError = Record<string, string>
+
 export interface User {
   id: number
   email: string
