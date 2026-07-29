@@ -6,8 +6,12 @@ import type {
   AuthResponse,
   Book,
   BookPayload,
+  ChangePasswordRequest,
   JwtPayload,
+  LoginRequest,
   PageResponse,
+  RegistrationRequest,
+  UpdateProfileRequest,
   User,
 } from './types'
 
@@ -47,9 +51,20 @@ const http = axios.create({ baseURL: API_URL })
 const refreshClient = axios.create({ baseURL: API_URL })
 let refreshPromise: Promise<string> | null = null
 
-function shouldSkipAuth(url = '') {
+function isAuthEndpoint(url = '') {
   return ['/auth/login', '/auth/register', '/auth/refresh'].some((path) =>
     url.includes(path),
+  )
+}
+
+function shouldSkipRefresh(url = '') {
+  return isAuthEndpoint(url) || url.includes('/user/me/password')
+}
+
+function isPublicBookRead(config?: { url?: string; method?: string }) {
+  return (
+    config?.method?.toLowerCase() === 'get' &&
+    config.url?.startsWith('/api/v1/books')
   )
 }
 
@@ -75,7 +90,7 @@ async function refreshAccessToken() {
 }
 
 http.interceptors.request.use(async (config) => {
-  if (shouldSkipAuth(config.url)) return config
+  if (isAuthEndpoint(config.url) || isPublicBookRead(config)) return config
   let token = authStorage.getAccess()
   const payload = accessPayload()
   if (token && payload && payload.exp * 1000 < Date.now() + 30_000) {
@@ -99,7 +114,8 @@ http.interceptors.response.use(
     if (
       config &&
       !config._retry &&
-      !shouldSkipAuth(config.url) &&
+      !shouldSkipRefresh(config.url) &&
+      !isPublicBookRead(config) &&
       (error.response?.status === 401 || expiredOnForbidden)
     ) {
       config._retry = true
@@ -124,33 +140,32 @@ export function normalizeApiError(error: unknown): string {
     if (messages.length) return messages.join('. ')
   }
   if (!error.response) return 'Не удалось связаться с сервером'
+  if (error.response.status === 400) return 'Проверьте правильность введённых данных'
+  if (error.response.status === 401) return 'Неверные данные или сессия завершена'
   if (error.response.status === 403) return 'У вас нет прав для этого действия'
   if (error.response.status === 404) return 'Запрошенные данные не найдены'
-  if (error.response.status === 409) return 'Такие данные уже существуют'
+  if (error.response.status === 409)
+    return 'Пользователь или другой объект с такими данными уже существует'
+  if (error.response.status === 410) return 'Срок действия ссылки или ресурса истёк'
+  if (error.response.status >= 500)
+    return 'Ошибка сервера. Попробуйте выполнить запрос ещё раз'
   return 'Не удалось выполнить запрос. Попробуйте ещё раз'
 }
 
 export const authApi = {
-  login: (body: { username: string; password: string }) =>
+  login: (body: LoginRequest) =>
     http.post<AuthResponse>('/auth/login', body).then((r) => r.data),
-  register: (body: {
-    email: string
-    username: string
-    password: string
-    firstName?: string
-    lastName?: string
-  }) => http.post<AuthResponse>('/auth/register', body).then((r) => r.data),
+  register: (body: RegistrationRequest) =>
+    http.post<AuthResponse>('/auth/register', body).then((r) => r.data),
   logout: () => http.post('/auth/logout'),
-  changePassword: (body: { currentPassword: string; newPassword: string }) =>
-    http.post('/auth/change-password', body),
 }
 
 export const usersApi = {
-  get: (id: number) => http.get<User>(`/user/${id}`).then((r) => r.data),
-  update: (
-    id: number,
-    body: Partial<User> & { currentPassword: string; password?: string },
-  ) => http.put<User>(`/user/${id}`, body).then((r) => r.data),
+  me: () => http.get<User>('/user/me').then((r) => r.data),
+  updateMe: (body: UpdateProfileRequest) =>
+    http.patch<User>('/user/me', body).then((r) => r.data),
+  changePassword: (body: ChangePasswordRequest) =>
+    http.put<void>('/user/me/password', body).then((r) => r.data),
 }
 
 export const booksApi = {
